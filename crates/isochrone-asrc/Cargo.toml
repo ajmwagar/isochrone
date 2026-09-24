@@ -1,0 +1,10 @@
+[package]
+name = "isochrone-asrc"
+description = "Drift-absorbing sample-rate control for networked audio: a servo that steers a resampling ratio from playout-buffer fill."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
