@@ -1,0 +1,10 @@
+[package]
+name = "isochrone-core"
+description = "RTP framing and wrap-safe media-clock arithmetic for AES67-style audio streams."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
