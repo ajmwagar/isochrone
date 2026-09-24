@@ -11,9 +11,11 @@
 //! be tested exhaustively without a network or a sound card.
 
 pub mod packet;
+pub mod playout;
 pub mod sequence;
 
 pub use packet::{Encoding, Header, ParseError};
+pub use playout::{Accepted, Playout, Played};
 pub use sequence::{Sequence, Timestamp};
 
 /// A stream's unchanging shape.
