@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.fpl.isochrone-jarvis-gateway</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/ajmwagar/.local/bin/isochrone</string>
+    <string>gateway</string>
+    <string>127.0.0.1:50041</string>
+    <string>192.168.20.13:50041</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/isochrone-jarvis-gateway.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/isochrone-jarvis-gateway.log</string>
+</dict>
+</plist>

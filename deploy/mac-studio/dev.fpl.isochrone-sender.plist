@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.fpl.isochrone-sender</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/ajmwagar/.local/bin/isochrone</string>
+    <string>send</string>
+    <string>Scarlett 18i20 4th Gen</string>
+    <string>192.168.20.13:50040</string>
+    <string>0.0.0.0:0</string>
+    <string>5,6</string>
+    <string>-6</string>
+  </array>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>/Users/ajmwagar/.local/state/isochrone/sender.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ajmwagar/.local/state/isochrone/sender.log</string>
+</dict>
+</plist>

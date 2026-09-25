@@ -1,0 +1,18 @@
+[Unit]
+Description=JARVIS shared low-latency Scarlett output
+Documentation=man:alsaloop(1)
+After=sound.target
+Before=mpd.service raspotify.service shairport-sync.service jarvis-edge.service
+
+[Service]
+Type=simple
+ExecStartPre=/sbin/modprobe snd-aloop pcm_substreams=1
+# Canvas observes the same pre-output PCM sent to the 2i2. Ten milliseconds
+# leaves ordinary userspace scheduling headroom without the previous 150ms
+# display-compensation delay.
+ExecStart=/usr/bin/alsaloop --cdevice visualizer_capture --pdevice hardware_dmixer --tlatency 10000 --rate 48000 --channels 2 --format S32_LE --sync 1
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

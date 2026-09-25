@@ -1,0 +1,16 @@
+[Unit]
+Description=Isochrone Studio audio receiver
+After=network-online.target jarvis-audio-sync.service
+Requires=jarvis-audio-sync.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ajm
+Group=audio
+ExecStart=/usr/local/bin/isochrone receive-mix hardware_dmixer 0.0.0.0:50040/48,0.0.0.0:50041/240 20 96
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

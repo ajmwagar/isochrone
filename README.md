@@ -28,8 +28,76 @@ problem solved another way.
   ratio, slowly and within an audibility bound. No audio, no I/O, no network:
   the decisions live here and are testable without any of it.
 
-Planned: `isochrone-core` (RTP framing, L24/L16, clock-domain types) and
-`isochrone` (sender/receiver, jitter buffer, CoreAudio and ALSA).
+- `isochrone-core` — RTP framing, L24/L16 conversion, wrap-safe clock-domain
+  arithmetic, and the timestamp-addressed playout buffer.
+- `isochrone` — UDP sender/receiver state, loss and latency telemetry, and the
+  first blocking ALSA adapter and CLI.
+
+## First I/O path
+
+The first executable path is deliberately small: 48kHz stereo L24, one RTP
+packet per millisecond, UDP unicast, and a configurable receiver target. It is
+AES67-shaped on the wire but is not yet a conforming AES67 endpoint: there is
+no SDP/SAP discovery or PTP clock identity, and the reported ASRC correction is
+not applied until a production resampler lands.
+
+On Linux, send an ALSA capture device:
+
+```sh
+isochrone send hw:Gen,0 192.168.10.74:50040
+```
+
+On macOS the same command selects an exact CoreAudio device name and sends
+its first two input channels. The Studio's current path is:
+
+```sh
+isochrone send "Scarlett 18i20 4th Gen" 192.168.20.13:50040
+```
+
+Receive into an ALSA playback device with a 20ms network target:
+
+```sh
+isochrone receive hw:Gen,0 0.0.0.0:50040 20
+```
+
+The Pi's Scarlett 2i2 is shared by the existing ALSA dmix contract, whose
+low-latency deployment uses a 96-frame (2ms) device period. Keep RTP at 48
+frames and aggregate at the device edge:
+
+```sh
+isochrone receive hardware_dmixer 0.0.0.0:50040 20 96
+```
+
+Use the Pi's wired `192.168.20.13` address from Studio. Its Wi-Fi address
+`192.168.10.74` has an asymmetric return path while Ethernet is preferred and
+does not carry this UDP stream reliably.
+
+For a repeatable Studio file test, use macOS's system decoder and send at an
+explicit safe gain:
+
+```sh
+afconvert input.mp3 /tmp/isochrone-test.wav -f WAVE -d LEF32@48000 -c 2
+isochrone send-wav /tmp/isochrone-test.wav 192.168.20.13:50040 -30
+```
+
+The installed Pi contract is versioned under `deploy/home-pi/`. It preserves
+the existing `hardware_dmixer`, `visualizer_sink`, `jarvis_tts`, and
+`visualizer_capture` interfaces while replacing the old 150ms relay and
+250–500ms ALSA buffers with a 10ms relay target and 20ms buffers.
+
+The receiver reports contiguous buffer fill, requested clock correction,
+packet gaps/reordering/lateness, concealed frames, malformed packets, and ALSA
+xrun recoveries once per second. These are operational signals, not debug-only
+logs: reducing the target is successful only while concealment and recoveries
+remain at zero.
+
+For a same-host test without touching a physical interface, load ALSA's
+`snd-aloop` module and use a paired Loopback subdevice:
+
+```sh
+isochrone receive hw:Loopback,1,0 127.0.0.1:50040 20
+isochrone send hw:Loopback,0,0 127.0.0.1:50040
+```
 
 ## Design notes
 
