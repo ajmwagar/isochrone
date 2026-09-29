@@ -1,0 +1,17 @@
+[Unit]
+Description=Isochrone audio-route agent
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ajm
+ExecStart=/usr/local/bin/isochrone-agent /home/ajm/.config/isochrone/agent.json
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

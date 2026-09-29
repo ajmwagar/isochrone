@@ -17,6 +17,7 @@ use isochrone_core::{
 };
 
 pub mod audio;
+pub mod control;
 
 pub const AES67_DYNAMIC_PAYLOAD_TYPE: u8 = 97;
 

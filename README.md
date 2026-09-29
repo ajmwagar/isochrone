@@ -99,6 +99,101 @@ isochrone receive hw:Loopback,1,0 127.0.0.1:50040 20
 isochrone send hw:Loopback,0,0 127.0.0.1:50040
 ```
 
+## Remote audio patching
+
+`isochrone-agent` turns the existing sender and receiver into a deterministic
+remote patch bay. Each host declares stable endpoint IDs for its ADCs and DACs;
+`isochronectl` authenticates to both hosts, starts the receiver first, starts
+the sender second, and waits until the receiver reports real RTP packets. A
+failed start or five-second verification timeout stops both sides. The agent
+also marks an established receiver as waiting if packet flow stops for three
+seconds.
+
+Audio never passes through the control connection. It remains direct RTP/UDP
+between the selected devices.
+
+Create a separate 256-bit token on each host and make it owner-readable only:
+
+```sh
+umask 077
+openssl rand -hex 32 > ~/.config/isochrone/agent.token
+```
+
+Example Mac source agent (`agent.json`):
+
+```json
+{
+  "node_id": "mac-studio",
+  "listen": "0.0.0.0:50100",
+  "advertise_ip": "192.168.20.12",
+  "token_file": "/Users/ajmwagar/.config/isochrone/agent.token",
+  "isochrone_binary": "/Users/ajmwagar/.local/bin/isochrone",
+  "state_dir": "/Users/ajmwagar/.local/state/isochrone",
+  "max_routes": 8,
+  "endpoints": [{
+    "id": "scarlett-18i20-in",
+    "label": "Scarlett 18i20 4th Gen inputs",
+    "direction": "input",
+    "device": "Scarlett 18i20 4th Gen",
+    "channels": [1, 2, 3, 4, 5, 6, 7, 8]
+  }]
+}
+```
+
+Example Pi destination agent:
+
+```json
+{
+  "node_id": "home-pi",
+  "listen": "0.0.0.0:50100",
+  "advertise_ip": "192.168.20.13",
+  "token_file": "/home/ajm/.config/isochrone/agent.token",
+  "isochrone_binary": "/usr/local/bin/isochrone",
+  "state_dir": "/home/ajm/.local/state/isochrone",
+  "max_routes": 8,
+  "endpoints": [{
+    "id": "scarlett-2i2-out",
+    "label": "Scarlett 2i2 outputs",
+    "direction": "output",
+    "device": "hardware_dmixer",
+    "channels": [1, 2]
+  }]
+}
+```
+
+Start an agent on each machine:
+
+```sh
+isochrone-agent ~/.config/isochrone/agent.json
+```
+
+The controller configuration names agents and their local copies of each
+agent's token:
+
+```json
+{
+  "agents": [
+    {"node_id":"mac-studio","address":"192.168.20.12:50100","token_file":"tokens/mac-studio.token"},
+    {"node_id":"home-pi","address":"192.168.20.13:50100","token_file":"tokens/home-pi.token"}
+  ]
+}
+```
+
+Inventory and connect channel pair 5–6 to the Pi DAC:
+
+```sh
+isochronectl control.json inventory
+isochronectl control.json connect studio-main \
+  mac-studio/scarlett-18i20-in home-pi/scarlett-2i2-out 5,6 -6 20 96
+isochronectl control.json routes
+isochronectl control.json disconnect studio-main
+```
+
+Endpoint declarations are the authority boundary: remote requests select an
+endpoint ID but cannot supply an arbitrary device name or executable. Bind the
+agent to a trusted network interface and firewall TCP 50100 plus the negotiated
+RTP/UDP ports to the intended peers.
+
 ## Design notes
 
 **Ratio is pitch.** A correction applied abruptly is a pitch step, and a

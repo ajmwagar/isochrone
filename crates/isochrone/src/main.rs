@@ -410,6 +410,7 @@ fn receive_mix(
         device_period_frames as f64 / f64::from(output_format.sample_rate_hz),
     );
     let mut last_report = Instant::now();
+    let health_path = std::env::var_os("ISOCHRONE_STATUS_FILE").map(std::path::PathBuf::from);
     let mut next_playback = Instant::now();
     let mut mixed = vec![0.0_f32; device_period_frames * output_format.channels as usize];
     eprintln!(
@@ -456,8 +457,12 @@ fn receive_mix(
         next_playback += period;
 
         if last_report.elapsed() >= Duration::from_secs(1) {
+            let mut packets_received = 0;
+            let mut concealed_frames = 0;
             for (index, receiver) in receivers.iter().enumerate() {
                 let metrics = receiver.metrics();
+                packets_received += metrics.packets_received;
+                concealed_frames += metrics.concealed_frames;
                 eprintln!(
                     "isochrone: input={index} fill={:.2}ms correction={:.2}ppm packets={} stream_changes={} gaps={} reordered={} late={} concealed_frames={} malformed={} playback_recoveries={}",
                     receiver.fill().as_secs_f64() * 1_000.0,
@@ -472,9 +477,43 @@ fn receive_mix(
                     playback.recoveries(),
                 );
             }
+            if let Some(path) = &health_path {
+                write_receiver_health(
+                    path,
+                    packets_received,
+                    concealed_frames,
+                    playback.recoveries(),
+                )?;
+            }
             last_report = Instant::now();
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn write_receiver_health(
+    path: &std::path::Path,
+    packets_received: u64,
+    concealed_frames: u64,
+    playback_recoveries: u64,
+) -> io::Result<()> {
+    let observed_at_unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_millis() as u64;
+    let health = isochrone::control::ReceiverHealth {
+        schema_version: 1,
+        observed_at_unix_ms,
+        packets_received,
+        concealed_frames,
+        playback_recoveries,
+    };
+    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+    std::fs::write(
+        &temporary,
+        serde_json::to_vec(&health).map_err(io::Error::other)?,
+    )?;
+    std::fs::rename(temporary, path)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
