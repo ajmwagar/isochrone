@@ -1,0 +1,19 @@
+[Unit]
+Description=Bridge Isochrone ALSA loopback into the Scarlett JACK graph
+After=jackd-scarlett.service isochrone-receiver.service
+Requires=jackd-scarlett.service isochrone-receiver.service
+Conflicts=jarvis-audio-sync.service
+
+[Service]
+Type=simple
+User=ajm
+Group=audio
+LimitRTPRIO=70
+LimitMEMLOCK=infinity
+ExecStart=/usr/bin/alsa_in -j isochrone -d hw:Loopback,1,0 -c 2 -p 96 -n 4 -r 48000 -q 1
+ExecStartPost=/bin/sh -c 'n=0; until /usr/bin/jack_connect isochrone:capture_1 system:playback_1 && /usr/bin/jack_connect isochrone:capture_2 system:playback_2; do n=$$((n + 1)); test $$n -ge 50 && exit 1; sleep 0.1; done'
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

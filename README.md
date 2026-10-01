@@ -48,10 +48,11 @@ isochrone send hw:Gen,0 192.168.10.74:50040
 ```
 
 On macOS the same command selects an exact CoreAudio device name and sends
-its first two input channels. The Studio's current path is:
+its selected input channels. For a software instrument or plugin host routed
+through the Scarlett 2i2, the Studio captures its CoreAudio loopback channels:
 
 ```sh
-isochrone send "Scarlett 18i20 4th Gen" 192.168.20.13:50040
+isochrone send "Scarlett 2i2 4th Gen" 192.168.2.74:50040 0.0.0.0:0 3,4 -6
 ```
 
 Receive into an ALSA playback device with a 20ms network target:
@@ -59,6 +60,12 @@ Receive into an ALSA playback device with a 20ms network target:
 ```sh
 isochrone receive hw:Gen,0 0.0.0.0:50040 20
 ```
+
+When JACK owns the Pi's Scarlett, receive into the shared `visualizer_sink`
+ALSA loopback and bridge that clock domain into JACK.
+`deploy/home-pi/isochrone-jack-bridge.service`
+connects the resulting stereo JACK ports to monitor outputs 1–2; Isochrone
+must not attempt to open the already-owned Scarlett or its dmix device.
 
 The Pi's Scarlett 2i2 is shared by the existing ALSA dmix contract, whose
 low-latency deployment uses a 96-frame (2ms) device period. Keep RTP at 48
@@ -68,7 +75,7 @@ frames and aggregate at the device edge:
 isochrone receive hardware_dmixer 0.0.0.0:50040 20 96
 ```
 
-Use the Pi's wired `192.168.20.13` address from Studio. Its Wi-Fi address
+Use the Pi's wired `192.168.2.74` address from Studio. Its Wi-Fi address
 `192.168.10.74` has an asymmetric return path while Ethernet is preferred and
 does not carry this UDP stream reliably.
 
