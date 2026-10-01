@@ -121,6 +121,14 @@ impl Playout {
         self.started = true;
     }
 
+    /// Discard buffered media and let the next packet establish a new playhead.
+    /// Used after an output underrun: continuing to advance the old playhead
+    /// would classify every packet from a still-running sender as late forever.
+    pub fn rebuffer(&mut self) {
+        self.written.fill(false);
+        self.started = false;
+    }
+
     /// Offer one packet's interleaved samples, stamped at `timestamp`.
     pub fn insert(&mut self, timestamp: Timestamp, samples: &[f32]) -> Accepted {
         let channels = self.format.channels as usize;
@@ -151,9 +159,8 @@ impl Playout {
         // A duplicate is a packet whose every frame is already present.
         // Checked before writing so a retransmission cannot overwrite audio
         // the device is about to read.
-        let already = (0..frames).all(|frame| {
-            self.written[self.slot(timestamp.advance(frame as u32))]
-        });
+        let already =
+            (0..frames).all(|frame| self.written[self.slot(timestamp.advance(frame as u32))]);
         if already {
             return Accepted::Duplicate;
         }

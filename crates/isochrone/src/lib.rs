@@ -298,6 +298,9 @@ impl Receiver {
         self.correction = self.servo.observe(self.playout.fill(), elapsed);
         if let Played::Concealed { frames } = self.playout.play(frames, &mut self.output) {
             self.metrics.concealed_frames += frames as u64;
+            self.playout.rebuffer();
+            self.servo.reset();
+            self.started = false;
         }
         &self.output
     }
@@ -386,6 +389,29 @@ mod tests {
         receiver.ingest(&packets[3]);
         receiver.render(48 * 2, Duration::from_millis(2));
         assert_eq!(receiver.metrics().concealed_frames, 48);
+    }
+
+    #[test]
+    fn concealment_rebuffers_instead_of_making_the_live_stream_permanently_late() {
+        let format = StreamFormat::aes67_48k_stereo();
+        let mut sender = Packetizer::new(format, 7);
+        let mut receiver = Receiver::new(format, Duration::from_millis(2));
+
+        receiver.ingest(&sender.packet(&samples(0)).unwrap());
+        receiver.ingest(&sender.packet(&samples(1)).unwrap());
+        assert!(receiver.render(48, Duration::from_millis(1))[0].abs() < 1e-6);
+        receiver.render(96, Duration::from_millis(2));
+        assert!(!receiver.ready());
+
+        receiver.ingest(&sender.packet(&samples(2)).unwrap());
+        receiver.ingest(&sender.packet(&samples(3)).unwrap());
+        assert!(
+            receiver.ready(),
+            "new packets must establish a fresh playhead"
+        );
+        let output = receiver.render(48, Duration::from_millis(1));
+        assert!(output.iter().any(|sample| sample.abs() > 0.01));
+        assert_eq!(receiver.metrics().late_packets, 0);
     }
 
     #[test]
