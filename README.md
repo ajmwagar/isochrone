@@ -49,10 +49,10 @@ isochrone send hw:Gen,0 192.168.10.74:50040
 
 On macOS the same command selects an exact CoreAudio device name and sends
 its selected input channels. For a software instrument or plugin host routed
-through the Scarlett 2i2, the Studio captures its CoreAudio loopback channels:
+through BlackHole, the Studio captures the virtual device's stereo channels:
 
 ```sh
-isochrone send "Scarlett 2i2 4th Gen" 192.168.2.74:50040 0.0.0.0:0 3,4 -6
+isochrone send "BlackHole 2ch" 192.168.2.74:50040 0.0.0.0:0 1,2 -6
 ```
 
 Receive into an ALSA playback device with a 20ms network target:
