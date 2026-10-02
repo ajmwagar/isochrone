@@ -400,12 +400,13 @@ fn receive_mix(
             )
         })
         .collect::<Vec<_>>();
-    let mut playback = AlsaPlayback::open(
-        device,
-        output_format.sample_rate_hz,
-        output_format.channels as usize,
-        device_period_frames,
-    )?;
+    // ALSA dmix clients that remain open without a live source can underrun the
+    // shared PCM indefinitely. Open the device on the first packet and release
+    // it after the source has gone idle so unrelated clients remain healthy.
+    let mut playback: Option<AlsaPlayback> = None;
+    let mut playback_recoveries = 0_u64;
+    let mut last_packet = None;
+    let idle_timeout = Duration::from_secs(3);
     let period = Duration::from_secs_f64(
         device_period_frames as f64 / f64::from(output_format.sample_rate_hz),
     );
@@ -427,10 +428,14 @@ fn receive_mix(
             // buffer and converts one scheduler stall into persistent loss.
             next_playback = now;
         }
+        let mut received_packet = false;
         for (receiver, packets) in receivers.iter_mut().zip(&incoming) {
             loop {
                 match packets.try_recv() {
-                    Ok(packet) => receiver.ingest(&packet),
+                    Ok(packet) => {
+                        receiver.ingest(&packet);
+                        received_packet = true;
+                    }
                     Err(mpsc::TryRecvError::Empty) => break,
                     Err(mpsc::TryRecvError::Disconnected) => {
                         return Err(io::Error::new(
@@ -441,19 +446,54 @@ fn receive_mix(
                 }
             }
         }
-        mixed.fill(0.0);
-        for receiver in &mut receivers {
-            for (mixed_sample, sample) in mixed
-                .iter_mut()
-                .zip(receiver.render(device_period_frames, period))
-            {
-                *mixed_sample += *sample;
+        if received_packet {
+            last_packet = Some(now);
+            if playback.is_none() {
+                playback = Some(AlsaPlayback::open(
+                    device,
+                    output_format.sample_rate_hz,
+                    output_format.channels as usize,
+                    device_period_frames,
+                )?);
+                eprintln!("isochrone: opened {device} after receiving RTP");
             }
         }
-        mixed
-            .iter_mut()
-            .for_each(|sample| *sample = sample.clamp(-1.0, 1.0));
-        playback.write_period(&mixed)?;
+        if playback.is_some()
+            && last_packet.is_some_and(|last| now.duration_since(last) >= idle_timeout)
+        {
+            if let Some(active) = playback.take() {
+                playback_recoveries += active.recoveries();
+            }
+            receivers = streams
+                .iter()
+                .map(|(_, frames_per_packet)| {
+                    Receiver::new(
+                        StreamFormat {
+                            frames_per_packet: *frames_per_packet,
+                            ..output_format
+                        },
+                        target,
+                    )
+                })
+                .collect();
+            last_packet = None;
+            eprintln!("isochrone: closed {device} after RTP became idle");
+        }
+        if let Some(active) = playback.as_mut() {
+            mixed.fill(0.0);
+            for receiver in &mut receivers {
+                for (mixed_sample, sample) in mixed
+                    .iter_mut()
+                    .zip(receiver.render(device_period_frames, period))
+                {
+                    *mixed_sample += *sample;
+                }
+            }
+            mixed
+                .iter_mut()
+                .for_each(|sample| *sample = sample.clamp(-1.0, 1.0));
+            active.write_period(&mixed)?;
+        }
         next_playback += period;
 
         if last_report.elapsed() >= Duration::from_secs(1) {
@@ -474,7 +514,8 @@ fn receive_mix(
                     metrics.late_packets,
                     metrics.concealed_frames,
                     metrics.malformed_packets,
-                    playback.recoveries(),
+                    playback_recoveries
+                        + playback.as_ref().map_or(0, AlsaPlayback::recoveries),
                 );
             }
             if let Some(path) = &health_path {
@@ -482,7 +523,8 @@ fn receive_mix(
                     path,
                     packets_received,
                     concealed_frames,
-                    playback.recoveries(),
+                    playback_recoveries
+                        + playback.as_ref().map_or(0, AlsaPlayback::recoveries),
                 )?;
             }
             last_report = Instant::now();
