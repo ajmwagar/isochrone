@@ -8,10 +8,10 @@ use std::{
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::{sync::mpsc, thread};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use isochrone::{Receiver, audio::Playback};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use isochrone::{UdpSender, audio::Capture};
@@ -352,6 +352,80 @@ fn receive(
     receive_mix(device, &[(bind, 48)], target, device_period_frames)
 }
 
+#[cfg(target_os = "macos")]
+fn receive(
+    device: &str,
+    bind: SocketAddr,
+    target: Duration,
+    device_period_frames: usize,
+) -> io::Result<()> {
+    use isochrone::audio::coreaudio::CoreAudioPlayback;
+
+    let format = StreamFormat::aes67_48k_stereo();
+    let socket = UdpSocket::bind(bind)?;
+    let (packets, incoming) = mpsc::sync_channel::<Vec<u8>>(512);
+    thread::Builder::new()
+        .name("isochrone-rtp-receiver".into())
+        .spawn(move || {
+            loop {
+                let mut wire = vec![0_u8; 2_048];
+                match socket.recv(&mut wire) {
+                    Ok(length) => {
+                        wire.truncate(length);
+                        if packets.send(wire).is_err() {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("isochrone: UDP receive failed: {error}");
+                        break;
+                    }
+                }
+            }
+        })?;
+    let mut receiver = Receiver::new(format, target);
+    let mut playback = CoreAudioPlayback::open(
+        device,
+        format.sample_rate_hz,
+        format.channels as usize,
+        device_period_frames,
+    )?;
+    let period =
+        Duration::from_secs_f64(device_period_frames as f64 / f64::from(format.sample_rate_hz));
+    let mut last_report = Instant::now();
+    let mut output = vec![0.0_f32; device_period_frames * format.channels as usize];
+    eprintln!(
+        "isochrone: receiving {bind} to CoreAudio {device}, target={}ms, device={} frames",
+        target.as_millis(),
+        device_period_frames,
+    );
+    loop {
+        let packet = incoming
+            .recv()
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "network receiver stopped"))?;
+        receiver.ingest(&packet);
+        while let Ok(packet) = incoming.try_recv() {
+            receiver.ingest(&packet);
+        }
+        output.copy_from_slice(receiver.render(device_period_frames, period));
+        playback.write_period(&output)?;
+        if last_report.elapsed() >= Duration::from_secs(1) {
+            let metrics = receiver.metrics();
+            eprintln!(
+                "isochrone: fill={:.2}ms correction={:.2}ppm packets={} gaps={} late={} concealed_frames={} malformed={}",
+                receiver.fill().as_secs_f64() * 1_000.0,
+                receiver.correction().ppm.0,
+                metrics.packets_received,
+                metrics.sequence_gaps,
+                metrics.late_packets,
+                metrics.concealed_frames,
+                metrics.malformed_packets,
+            );
+            last_report = Instant::now();
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn receive_mix(
     device: &str,
@@ -514,8 +588,7 @@ fn receive_mix(
                     metrics.late_packets,
                     metrics.concealed_frames,
                     metrics.malformed_packets,
-                    playback_recoveries
-                        + playback.as_ref().map_or(0, AlsaPlayback::recoveries),
+                    playback_recoveries + playback.as_ref().map_or(0, AlsaPlayback::recoveries),
                 );
             }
             if let Some(path) = &health_path {
@@ -523,8 +596,7 @@ fn receive_mix(
                     path,
                     packets_received,
                     concealed_frames,
-                    playback_recoveries
-                        + playback.as_ref().map_or(0, AlsaPlayback::recoveries),
+                    playback_recoveries + playback.as_ref().map_or(0, AlsaPlayback::recoveries),
                 )?;
             }
             last_report = Instant::now();
@@ -574,7 +646,7 @@ fn send_wav(_: &str, _: SocketAddr, _: f32) -> io::Result<()> {
     ))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn receive(_: &str, _: SocketAddr, _: Duration, _: usize) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,

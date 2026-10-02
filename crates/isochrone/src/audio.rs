@@ -27,7 +27,7 @@ fn s32_to_sample(sample: i32) -> f32 {
 
 #[cfg(target_os = "macos")]
 pub mod coreaudio {
-    use super::Capture;
+    use super::{Capture, Playback};
     use cpal::{
         BufferSize, SampleFormat, Stream, StreamConfig,
         traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -169,6 +169,110 @@ pub mod coreaudio {
                 *sample = self.pending.pop_front().expect("length checked above");
             }
             Ok(())
+        }
+    }
+
+    pub struct CoreAudioPlayback {
+        _stream: Stream,
+        outgoing: mpsc::SyncSender<Vec<f32>>,
+        callback_error: Arc<Mutex<Option<String>>>,
+    }
+
+    impl CoreAudioPlayback {
+        pub fn open(
+            device_name: &str,
+            rate: u32,
+            channels: usize,
+            period_frames: usize,
+        ) -> io::Result<Self> {
+            eprintln!("isochrone: opening CoreAudio output {device_name:?}");
+            let host = cpal::default_host();
+            let device = host
+                .output_devices()
+                .map_err(other)?
+                .find(|device| device.to_string() == device_name)
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!("CoreAudio output device {device_name:?} was not found"),
+                    )
+                })?;
+            let supported = device
+                .supported_output_configs()
+                .map_err(other)?
+                .find(|config| {
+                    config.sample_format() == SampleFormat::F32
+                        && config.min_sample_rate() <= rate
+                        && config.max_sample_rate() >= rate
+                        && usize::from(config.channels()) == channels
+                })
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        format!("{device_name:?} has no {channels}-channel f32 output at {rate}Hz"),
+                    )
+                })?;
+            eprintln!("isochrone: configuring CoreAudio output {device_name:?}");
+            let config = StreamConfig {
+                channels: supported.channels(),
+                sample_rate: rate,
+                buffer_size: BufferSize::Fixed(period_frames.try_into().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "CoreAudio period is too large")
+                })?),
+            };
+            // Keep callback decoupling bounded; a deep queue is hidden output
+            // latency and defeats the receiver's explicit jitter target.
+            let (outgoing, blocks) = mpsc::sync_channel::<Vec<f32>>(8);
+            let callback_error = Arc::new(Mutex::new(None));
+            let stream_error = Arc::clone(&callback_error);
+            let mut pending = VecDeque::new();
+            let stream = device
+                .build_output_stream(
+                    config,
+                    move |output: &mut [f32], _| {
+                        while pending.len() < output.len() {
+                            match blocks.try_recv() {
+                                Ok(block) => pending.extend(block),
+                                Err(_) => break,
+                            }
+                        }
+                        for sample in output {
+                            *sample = pending.pop_front().unwrap_or(0.0);
+                        }
+                    },
+                    move |error| {
+                        *stream_error.lock().expect("CoreAudio error mutex poisoned") =
+                            Some(error.to_string());
+                    },
+                    None,
+                )
+                .map_err(other)?;
+            eprintln!("isochrone: starting CoreAudio output {device_name:?}");
+            stream.play().map_err(other)?;
+            eprintln!("isochrone: CoreAudio output {device_name:?} ready");
+            Ok(Self {
+                _stream: stream,
+                outgoing,
+                callback_error,
+            })
+        }
+    }
+
+    impl Playback for CoreAudioPlayback {
+        fn write_period(&mut self, interleaved: &[f32]) -> io::Result<()> {
+            if let Some(error) = self
+                .callback_error
+                .lock()
+                .map_err(|_| io::Error::other("CoreAudio error mutex poisoned"))?
+                .take()
+            {
+                return Err(io::Error::other(format!(
+                    "CoreAudio output callback failed: {error}"
+                )));
+            }
+            self.outgoing.send(interleaved.to_vec()).map_err(|_| {
+                io::Error::new(io::ErrorKind::BrokenPipe, "CoreAudio output stream stopped")
+            })
         }
     }
 

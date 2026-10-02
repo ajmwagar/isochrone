@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.fpl.isochrone-headphones</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/ajmwagar/.local/bin/isochrone</string>
+    <string>receive</string>
+    <string>Scarlett 2i2 4th Gen</string>
+    <string>0.0.0.0:50042</string>
+    <string>20</string>
+    <string>96</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/ajmwagar/.local/state/isochrone/headphones.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ajmwagar/.local/state/isochrone/headphones.log</string>
+</dict>
+</plist>
