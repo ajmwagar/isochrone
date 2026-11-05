@@ -1,0 +1,23 @@
+[Unit]
+Description=Isochrone Soil remote mix receiver
+After=network-online.target synesthesia-console.service
+Wants=network-online.target synesthesia-console.service
+BindsTo=synesthesia-console.service
+PartOf=synesthesia-console.service
+
+[Service]
+Type=simple
+User=ajm
+Group=audio
+Environment=JACK_PROMISCUOUS_SERVER=audio
+# One UDP stream per source. Studio -> 50043, Neo -> 50044.
+ExecStart=/bin/sh -ec 'exec /usr/local/bin/isochrone receive-mix reference_soil 0.0.0.0:50043/48,0.0.0.0:50044/48 20 "$(jack_bufsize)"'
+Restart=on-failure
+RestartSec=3
+LimitRTPRIO=65
+LimitMEMLOCK=infinity
+CPUSchedulingPolicy=rr
+CPUSchedulingPriority=60
+
+[Install]
+WantedBy=multi-user.target
